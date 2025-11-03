@@ -529,10 +529,10 @@ Same as original project (MIT License)
 
 ## 👤 Author
 
-**Wrist Rotation Feature:** Added November 3, 2024
+**Wrist Rotation Feature:** Added November 3, 2025
 **Original Project:** ShoumikMahbubRidoy
 
 ---
 
 **README Version:** 1.0  
-**Last Updated:** November 3, 2024
+**Last Updated:** November 3, 2025

@@ -1,8 +1,10 @@
 # src/gesture_oak/detection/hand_detector.py
 #!/usr/bin/env python3
+
 import sys
 import re
 from pathlib import Path
+
 import numpy as np
 import depthai as dai
 import cv2
@@ -16,9 +18,10 @@ from ..utils.FPS import FPS
 def _find_asset(relpath: str) -> str:
     """
     Return a filesystem path to an asset whether running from source or PyInstaller onefile.
+
     relpath examples:
-      - "models/palm_detection_sh4.blob"
-      - "src/gesture_oak/utils/template_manager_script_solo.py"
+    - "models/palm_detection_sh4.blob"
+    - "src/gesture_oak/utils/template_manager_script_solo.py"
     """
     # 1) If running under PyInstaller onefile, files are extracted under _MEIPASS
     meipass = getattr(sys, "_MEIPASS", None)
@@ -30,7 +33,8 @@ def _find_asset(relpath: str) -> str:
     # 2) Try relative to repo root guessed from this file
     here = Path(__file__).resolve()
     for parent in [here] + list(here.parents):
-        p = parent.parent.parent.parent / relpath  # step up to project root then into rel
+        # step up to project root then into rel
+        p = parent.parent.parent.parent / relpath
         if p.exists():
             return str(p)
 
@@ -48,11 +52,11 @@ class HandDetector:
     MediaPipe-based hand detector for OAK-D using IR mono cameras.
 
     Key points:
-      - LEFT/RIGHT mono cameras -> StereoDepth for mm depth
-      - Light image enhancement for IR
-      - Non-blocking host queues
-      - Palm & Landmark NNs + postproc script (Script node orchestrated)
-      - Depth-aware filtering (distance-aware variance tolerance)
+    - LEFT/RIGHT mono cameras -> StereoDepth for mm depth
+    - Light image enhancement for IR
+    - Non-blocking host queues
+    - Palm & Landmark NNs + postproc script (Script node orchestrated)
+    - Depth-aware filtering (distance-aware variance tolerance)
     """
 
     def __init__(
@@ -132,6 +136,7 @@ class HandDetector:
         mono_to_rgb = pipeline.createImageManip()
         mono_to_rgb.initialConfig.setResize(self.img_w, self.img_h)
         mono_to_rgb.initialConfig.setFrameType(dai.ImgFrame.Type.RGB888p)
+        mono_to_rgb.initialConfig.setHorizontalFlip(True)  # <<< MIRROR to fix left/right >>>
         cam_left.out.link(mono_to_rgb.inputImage)
 
         # Depth XLink out
@@ -268,14 +273,20 @@ class HandDetector:
     def extract_hand_data(self, res, hand_idx):
         """Turn script output into a HandRegion with 2D/3D info if available."""
         hand = mpu.HandRegion()
+
         hand.rect_x_center_a = res["rect_center_x"][hand_idx] * self.frame_size
         hand.rect_y_center_a = res["rect_center_y"][hand_idx] * self.frame_size
         hand.rect_w_a = hand.rect_h_a = res["rect_size"][hand_idx] * self.frame_size
         hand.rotation = res["rotation"][hand_idx]
+
         hand.rect_points = mpu.rotated_rect_to_points(
-            hand.rect_x_center_a, hand.rect_y_center_a,
-            hand.rect_w_a, hand.rect_h_a, hand.rotation
+            hand.rect_x_center_a,
+            hand.rect_y_center_a,
+            hand.rect_w_a,
+            hand.rect_h_a,
+            hand.rotation
         )
+
         hand.lm_score = res["lm_score"][hand_idx]
         hand.handedness = res["handedness"][hand_idx]
         hand.label = "right" if hand.handedness > 0.5 else "left"
@@ -302,7 +313,6 @@ class HandDetector:
     def filter_hands_by_depth(self, hands, depth_frame):
         """
         Filter hands using depth with *distance-aware tolerance*.
-
         Keeps far valid hands (300–2000 mm) and relaxes std tolerance with distance,
         so mid/far hands aren't dropped too aggressively.
         """
@@ -311,7 +321,6 @@ class HandDetector:
 
         filtered = []
         dh, dw = depth_frame.shape
-
         for hand in hands:
             if not hasattr(hand, 'landmarks') or hand.landmarks is None:
                 continue
@@ -335,7 +344,6 @@ class HandDetector:
             y2 = min(dh, cy + half)
             x1 = max(0, cx - half)
             x2 = min(dw, cx + half)
-
             roi = depth_frame[y1:y2, x1:x2]
             vals = roi[roi > 0]
             if len(vals) < 30:
@@ -387,7 +395,6 @@ class HandDetector:
             if in_video is None:
                 return None, [], None
             raw_frame = in_video.getCvFrame()
-
             frame = self.enhance_ir_frame(raw_frame)
 
             # Depth (non-blocking)
@@ -401,7 +408,8 @@ class HandDetector:
             if in_res is None:
                 return frame, [], depth_frame
 
-            res = marshal.loads(in_res.getData());
+            res = marshal.loads(in_res.getData())
+
             hands = []
             lm_scores = res.get("lm_score", [])
             for i in range(len(lm_scores)):

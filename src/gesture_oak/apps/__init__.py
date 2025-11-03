@@ -1,1 +1,2 @@
-# Apps module for OAK-D Gesture Recognition
+# can be empty or:
+__all__ = []

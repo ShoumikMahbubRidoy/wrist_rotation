@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Wrist Rotation Tracking Application
-Real-time wrist rotation detection with visual feedback
+FIXED Wrist Rotation App
+- Better fist detection with debug display
+- Original rotation logic (no dead zone)
 """
 import cv2
 import numpy as np
@@ -9,7 +10,6 @@ import sys
 import os
 from pathlib import Path
 
-# Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from gesture_oak.detection.hand_detector import HandDetector
@@ -19,17 +19,7 @@ from gesture_oak.detection.wrist_rotation_detector import (
 
 
 def draw_rotation_arc(frame, center_x, center_y, radius, angle, position):
-    """
-    Draw rotation arc indicator showing current angle and position zones.
-    
-    Args:
-        frame: Image to draw on
-        center_x, center_y: Arc center coordinates
-        radius: Arc radius
-        angle: Current angle (0-180)
-        position: Current RotationPosition
-    """
-    # Zone colors
+    """Draw rotation arc - ORIGINAL (no dead zone)"""
     zone_colors = {
         1: (0, 255, 255),    # Yellow - Left Far
         2: (0, 255, 0),      # Green - Left Near
@@ -37,20 +27,13 @@ def draw_rotation_arc(frame, center_x, center_y, radius, angle, position):
         4: (0, 0, 255),      # Red - Right Far
     }
     
-    # Draw zone arcs (background)
-    # Position 1: 0° to 60°
+    # Draw zone arcs
     cv2.ellipse(frame, (center_x, center_y), (radius, radius), 
                 180, 0, 60, (100, 100, 100), 2)
-    
-    # Position 2: 60° to 90°
     cv2.ellipse(frame, (center_x, center_y), (radius, radius), 
                 180, 60, 90, (100, 100, 100), 2)
-    
-    # Position 3: 90° to 120°
     cv2.ellipse(frame, (center_x, center_y), (radius, radius), 
                 180, 90, 120, (100, 100, 100), 2)
-    
-    # Position 4: 120° to 180°
     cv2.ellipse(frame, (center_x, center_y), (radius, radius), 
                 180, 120, 180, (100, 100, 100), 2)
     
@@ -64,107 +47,107 @@ def draw_rotation_arc(frame, center_x, center_y, radius, angle, position):
             start_angle, end_angle = 60, 90
         elif position == RotationPosition.RIGHT_NEAR:
             start_angle, end_angle = 90, 120
-        else:  # RIGHT_FAR
+        else:
             start_angle, end_angle = 120, 180
         
         cv2.ellipse(frame, (center_x, center_y), (radius, radius), 
                    180, start_angle, end_angle, color, 8)
     
-    # Draw current angle indicator (line)
-    angle_rad = np.radians(180 - angle)  # Flip for display
-    end_x = int(center_x + radius * np.cos(angle_rad))
-    end_y = int(center_y + radius * np.sin(angle_rad))
+    # Draw angle indicator
+    if angle is not None:
+        angle_rad = np.radians(180 - angle)
+        end_x = int(center_x + radius * np.cos(angle_rad))
+        end_y = int(center_y + radius * np.sin(angle_rad))
+        
+        cv2.line(frame, (center_x, center_y), (end_x, end_y), (255, 255, 255), 3)
+        cv2.circle(frame, (end_x, end_y), 8, (0, 255, 0), -1)
+        
+        text = f"{int(angle)}"
+        cv2.putText(frame, text, (center_x - 20, center_y - radius - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
-    cv2.line(frame, (center_x, center_y), (end_x, end_y), (255, 255, 255), 3)
-    cv2.circle(frame, (end_x, end_y), 8, (0, 255, 0), -1)
-    
-    # Draw center point
     cv2.circle(frame, (center_x, center_y), 5, (255, 255, 255), -1)
-    
-    # Draw angle text
-    text = f"{int(angle)}°"
-    cv2.putText(frame, text, (center_x - 20, center_y - radius - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
 
 def draw_hand_state_indicator(frame, hand_state, x, y):
-    """
-    Draw hand state (fisted/open) indicator.
-    
-    Args:
-        frame: Image to draw on
-        hand_state: HandState enum
-        x, y: Position to draw at
-    """
+    """Draw hand state"""
     if hand_state == HandState.OPEN:
-        color = (0, 255, 0)  # Green
+        color = (0, 255, 0)
         text = "HAND: OPEN"
-        icon = "OPEN"
-    else:
-        color = (0, 0, 255)  # Red
+    elif hand_state == HandState.FISTED:
+        color = (0, 0, 255)
         text = "HAND: FISTED"
-        icon = "FIST"
+    else:
+        color = (128, 128, 128)
+        text = "HAND: UNKNOWN"
     
-    # Background box
-    cv2.rectangle(frame, (x, y), (x + 200, y + 50), (0, 0, 0), -1)
-    cv2.rectangle(frame, (x, y), (x + 200, y + 50), color, 2)
-    
-    # Text
+    cv2.rectangle(frame, (x, y), (x + 220, y + 50), (0, 0, 0), -1)
+    cv2.rectangle(frame, (x, y), (x + 220, y + 50), color, 2)
     cv2.putText(frame, text, (x + 10, y + 35),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
 
+def draw_finger_curl_ratios(frame, finger_ratios, curl_threshold, x, y):
+    """
+    Draw finger curl ratios for debugging
+    Shows the distance ratio for each finger
+    Green = Extended (ratio > threshold)
+    Red = Curled (ratio < threshold)
+    """
+    # Title
+    cv2.putText(frame, "Finger Curl Ratios:", (x, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    cv2.putText(frame, f"(Threshold: {curl_threshold:.2f})", (x, y + 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+    
+    fingers = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
+    
+    for i, finger in enumerate(fingers):
+        finger_key = finger.lower()
+        ratio = finger_ratios.get(finger_key, 0.0)
+        
+        # Extended if ratio > threshold
+        is_extended = ratio > curl_threshold
+        color = (0, 255, 0) if is_extended else (0, 0, 255)
+        state = "EXT" if is_extended else "CURL"
+        
+        y_pos = y + 45 + (i * 25)
+        text = f"{finger}: {ratio:.2f} [{state}]"
+        cv2.putText(frame, text, (x, y_pos),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+
 def draw_position_display(frame, position, position_name, x, y):
-    """
-    Draw current position display.
-    
-    Args:
-        frame: Image to draw on
-        position: Position value (0-4)
-        position_name: Position name string
-        x, y: Position to draw at
-    """
-    # Position color
+    """Draw position number"""
     if position == 0:
-        color = (128, 128, 128)  # Gray
+        color = (128, 128, 128)
     elif position == 1:
-        color = (0, 255, 255)  # Yellow
+        color = (0, 255, 255)
     elif position == 2:
-        color = (0, 255, 0)  # Green
+        color = (0, 255, 0)
     elif position == 3:
-        color = (255, 128, 0)  # Orange
+        color = (255, 128, 0)
     else:
-        color = (0, 0, 255)  # Red
+        color = (0, 0, 255)
     
-    # Large position number
     cv2.putText(frame, str(position), (x, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 3.0, color, 8)
-    
-    # Position name
     cv2.putText(frame, position_name, (x, y + 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
 
 def draw_hand_landmarks(frame, hand):
-    """Draw hand landmarks and skeleton"""
+    """Draw hand skeleton"""
     if not hasattr(hand, 'landmarks') or hand.landmarks is None:
         return
     
     landmarks = hand.landmarks
-    
-    # Draw connections (simplified skeleton)
     connections = [
-        # Thumb
         (0, 1), (1, 2), (2, 3), (3, 4),
-        # Index
         (0, 5), (5, 6), (6, 7), (7, 8),
-        # Middle
         (0, 9), (9, 10), (10, 11), (11, 12),
-        # Ring
         (0, 13), (13, 14), (14, 15), (15, 16),
-        # Pinky
         (0, 17), (17, 18), (18, 19), (19, 20),
-        # Palm
         (5, 9), (9, 13), (13, 17)
     ]
     
@@ -176,11 +159,9 @@ def draw_hand_landmarks(frame, hand):
         except (IndexError, AttributeError):
             continue
     
-    # Draw landmark points
     for i, point in enumerate(landmarks):
         try:
             pt = tuple(point.astype(int))
-            # Wrist and finger tips larger
             if i in [0, 4, 8, 12, 16, 20]:
                 cv2.circle(frame, pt, 6, (0, 0, 255), -1)
             else:
@@ -190,144 +171,156 @@ def draw_hand_landmarks(frame, hand):
 
 
 def main():
-    """Main application loop"""
-    print("="*60)
-    print("WRIST ROTATION DETECTION SYSTEM")
-    print("="*60)
-    print("Camera: Palm-facing, 40-100cm distance")
-    print("Detection: Hand state → Rotation angle → Position (1-4)")
+    """Main application"""
+    print("="*70)
+    print("FIXED WRIST ROTATION DETECTION")
+    print("="*70)
+    print("Camera: Palm-facing, 40-100cm")
+    print()
+    print("Position Mapping (ORIGINAL - NO DEAD ZONE):")
+    print("  Position 1: 0° to 60° (LEFT FAR)")
+    print("  Position 2: 60° to 90° (LEFT NEAR)")
+    print("  Position 3: 90° to 120° (RIGHT NEAR)")
+    print("  Position 4: 120° to 180° (RIGHT FAR)")
+    print()
+    print("Fist Detection: Distance ratio method")
+    print("  Extended finger: ratio > 0.70")
+    print("  Curled finger: ratio < 0.70")
     print()
     print("Controls:")
     print("  'q' - Quit")
-    print("  'r' - Reset statistics")
+    print("  'r' - Reset")
     print("  's' - Save frame")
-    print("="*60)
+    print("  'd' - Toggle debug")
+    print("  '+' - Increase threshold (stricter)")
+    print("  '-' - Decrease threshold (looser)")
+    print("="*70)
     
-    # Initialize detectors
+    # Initialize
     print("Initializing hand detector...")
     hand_detector = HandDetector(
         fps=30,
         resolution=(640, 480),
-        pd_score_thresh=0.12,  # Slightly lower for palm-facing
+        pd_score_thresh=0.10,
         use_gesture=False
     )
     
     if not hand_detector.connect():
-        print("Failed to connect to OAK-D camera!")
-        print("Please check:")
-        print("  1. Camera is connected via USB 3.0")
-        print("  2. Drivers are installed")
-        print("  3. No other application is using the camera")
+        print("Failed to connect to camera!")
         return
     
-    print("Initializing wrist rotation detector...")
+    print("Initializing rotation detector...")
     rotation_detector = WristRotationDetector(
-        buffer_size=10,
-        angle_smoothing=5
+        buffer_size=15,
+        angle_smoothing=7,
+        ema_alpha=0.35,
+        open_frames=3,
+        fist_frames=5,
+        min_lm_score=0.3,
+        max_angle_jump=40.0,
+        neutral_calibration_frames=12,
+        curl_threshold=0.70,  # ADJUSTABLE - increase if too sensitive
     )
     
-    print("Starting detection...")
+    print("Starting...")
     print()
     
-    frame_count = 0
-    saved_frame_count = 0
-    
-    # Check for stop flag
-    stop_file_path = os.environ.get("TG25_STOP_FILE", "")
+    saved_count = 0
+    show_debug = True
+    stop_file = os.environ.get("TG25_STOP_FILE", "")
     
     try:
         while True:
-            # Check stop flag
-            if stop_file_path and os.path.exists(stop_file_path):
-                print("Stop flag detected. Exiting...")
+            if stop_file and os.path.exists(stop_file):
                 break
             
-            # Get frame and hands
-            frame, hands, depth_frame = hand_detector.get_frame_and_hands()
-            
+            frame, hands, depth = hand_detector.get_frame_and_hands()
             if frame is None:
                 continue
             
-            frame_count += 1
+            display = frame.copy()
+            h, w = display.shape[:2]
             
-            # Create display frame
-            display_frame = frame.copy()
-            h, w = display_frame.shape[:2]
-            
-            # Process first detected hand
             if len(hands) > 0:
-                hand = hands[0]  # Use first hand
+                hand = hands[0]
                 
-                # Update rotation detector
+                # Update detector
                 position, angle, hand_state = rotation_detector.update(hand)
+                info = rotation_detector.get_state_info()
                 
-                # Get state info
-                state_info = rotation_detector.get_state_info()
+                # Draw everything
+                draw_hand_landmarks(display, hand)
                 
-                # Draw hand landmarks
-                draw_hand_landmarks(display_frame, hand)
+                # Rotation arc (top-right)
+                draw_rotation_arc(display, w - 150, 150, 100, angle, position)
                 
-                # Draw rotation arc (top-right)
-                arc_x = w - 150
-                arc_y = 150
-                arc_radius = 100
-                draw_rotation_arc(display_frame, arc_x, arc_y, arc_radius, 
-                                angle, position)
+                # Hand state (top-left)
+                draw_hand_state_indicator(display, hand_state, 10, 10)
                 
-                # Draw hand state indicator (top-left)
-                draw_hand_state_indicator(display_frame, hand_state, 10, 10)
+                # Position (bottom-left)
+                draw_position_display(display, position.value,
+                                    info['position_name'], 20, h - 100)
                 
-                # Draw position display (bottom-left, large)
-                draw_position_display(display_frame, position.value, 
-                                    state_info['position_name'], 20, h - 100)
+                # Curl ratios debug (left side)
+                if show_debug:
+                    finger_ratios = info.get('finger_ratios', {})
+                    # Get current threshold from detector
+                    curl_threshold = rotation_detector.curl_threshold
+                    draw_finger_curl_ratios(display, finger_ratios, 
+                                          curl_threshold, 10, 80)
                 
-                # Draw statistics (bottom-right)
-                stats_x = w - 350
-                stats_y = h - 120
-                stats_lines = [
-                    f"Position: {state_info['position']}",
-                    f"Angle: {state_info['angle']:.1f}",
-                    f"Hand: {state_info['hand_state']}",
-                    f"Changes: {state_info['total_changes']}",
+                # Stats (bottom-right)
+                stats_x = w - 400
+                stats_y = h - 150
+                stats = [
+                    f"Position: {info['position']}",
+                    f"Angle: {info['angle']:.1f}" if info['angle'] else "Angle: N/A",
+                    f"Hand: {info['hand_state']}",
+                    f"Changes: {info['total_changes']}",
+                    f"Threshold: {rotation_detector.curl_threshold:.2f}",
                 ]
                 
-                for i, line in enumerate(stats_lines):
-                    y = stats_y + i * 30
-                    cv2.putText(display_frame, line, (stats_x, y),
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                for i, line in enumerate(stats):
+                    cv2.putText(display, line, (stats_x, stats_y + i * 25),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             else:
-                # No hand detected
-                cv2.putText(display_frame, "NO HAND DETECTED", (20, h - 30),
+                cv2.putText(display, "NO HAND DETECTED", (20, h - 30),
                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
             
-            # Draw FPS
+            # FPS
             fps = hand_detector.fps_counter.get_global()
-            cv2.putText(display_frame, f"FPS: {fps:.1f}", (w - 150, 30),
+            cv2.putText(display, f"FPS: {fps:.1f}", (w - 150, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
-            # Show frame
-            cv2.imshow("Wrist Rotation Detection", display_frame)
+            cv2.imshow("Wrist Rotation Detection", display)
             
-            # Handle keys
+            # Keys
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                print("Quit requested")
                 break
             elif key == ord('r'):
-                print("Resetting statistics...")
+                print("Reset")
                 rotation_detector.reset()
             elif key == ord('s'):
-                filename = f"wrist_rotation_frame_{saved_frame_count:04d}.jpg"
-                cv2.imwrite(filename, display_frame)
-                print(f"Saved frame: {filename}")
-                saved_frame_count += 1
+                filename = f"wrist_{saved_count:04d}.jpg"
+                cv2.imwrite(filename, display)
+                print(f"Saved: {filename}")
+                saved_count += 1
+            elif key == ord('d'):
+                show_debug = not show_debug
+                print(f"Debug: {'ON' if show_debug else 'OFF'}")
+            elif key == ord('+') or key == ord('='):
+                rotation_detector.curl_threshold += 0.05
+                print(f"Threshold: {rotation_detector.curl_threshold:.2f} (stricter)")
+            elif key == ord('-') or key == ord('_'):
+                rotation_detector.curl_threshold = max(0.1, rotation_detector.curl_threshold - 0.05)
+                print(f"Threshold: {rotation_detector.curl_threshold:.2f} (looser)")
     
     except KeyboardInterrupt:
-        print("\nInterrupted by user")
+        print("\nInterrupted")
     
     finally:
-        # Cleanup
-        print("Cleaning up...")
+        print("Cleanup...")
         hand_detector.close()
         cv2.destroyAllWindows()
         print("Done!")
