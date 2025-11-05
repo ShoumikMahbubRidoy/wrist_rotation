@@ -1,0 +1,3 @@
+State: OPEN
+Current Position: 4
+Angle: 155.8‹
