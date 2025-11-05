@@ -29,10 +29,10 @@ class HandState(Enum):
 
 class RotationPosition(Enum):
     NONE = 0
-    LEFT_FAR = 1    # 0° to 60°
-    LEFT_NEAR = 2   # 60° to 90°
-    RIGHT_NEAR = 3  # 90° to 120°
-    RIGHT_FAR = 4   # 120° to 180°
+    LEFT_FAR = 4    # 0° to 60°
+    LEFT_NEAR = 3   # 60° to 90°
+    RIGHT_NEAR = 2  # 90° to 120°
+    RIGHT_FAR = 1   # 120° to 180°
 
 def _distance(p1, p2):
     """Euclidean distance"""
