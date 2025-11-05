@@ -1,5 +1,6 @@
 # src/gesture_oak/detection/hand_detector.py
 #!/usr/bin/env python3
+import os
 import sys
 import re
 from pathlib import Path
@@ -408,9 +409,11 @@ class HandDetector:
                 hand = self.extract_hand_data(res, i)
                 hands.append(hand)
 
-            # Depth-based filtering to cut false positives but keep far valid hands
-            if depth_frame is not None and len(hands) > 0:
+            # Depth-based filtering (can disable via env OAK_DEPTH_FILTER=0)
+            if depth_frame is not None and len(hands) > 0 and os.environ.get("OAK_DEPTH_FILTER", "1") == "1":
                 hands = self.filter_hands_by_depth(hands, depth_frame)
+
+
 
             # continuity bookkeeping (optional)
             if hands:

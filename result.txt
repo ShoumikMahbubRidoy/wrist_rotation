@@ -1,3 +1,3 @@
 State: OPEN
-Current Position: 3
-Angle: 69.2‹
+Current Position: 0
+Angle: 133.3Â°
