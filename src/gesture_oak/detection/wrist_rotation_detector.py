@@ -1,19 +1,25 @@
-# src/gesture_oak/detection/wrist_rotation_detector.py
 """
-SIMPLE & INDEPENDENT Wrist Rotation Detector
-- Hand state (Fisted/Open) = for display only
-- Position (1/2/3/4) = ALWAYS updates based on angle (independent!)
+WRIST ROTATION DETECTOR + UDP v2.7
+- Sends:
+    "gesture/five"   when OPEN
+    "gesture/zero"   when FISTED
+    "area/menu/1-4"  current position
+    "area/menu/0"    NO HAND
+- Robust NO_HAND via:
+    * Watchdog timeout (stale frames)
+    * Tiny/invalid palm guard
 """
+
+import math, socket, time
+import numpy as np
 from enum import Enum, auto
 from collections import deque
 from typing import Optional, Tuple, List
-import numpy as np
-import math
 
 __all__ = ["WristRotationDetector", "HandState", "RotationPosition", "__version__", "WRIST"]
-__version__ = "2.0.0"
+__version__ = "2.7.0"
 
-# MediaPipe landmarks
+# MediaPipe indices
 WRIST = 0
 THUMB_CMC, THUMB_MCP, THUMB_IP, THUMB_TIP = 1, 2, 3, 4
 INDEX_MCP, INDEX_PIP, INDEX_DIP, INDEX_TIP = 5, 6, 7, 8
@@ -21,275 +27,232 @@ MIDDLE_MCP, MIDDLE_PIP, MIDDLE_DIP, MIDDLE_TIP = 9, 10, 11, 12
 RING_MCP, RING_PIP, RING_DIP, RING_TIP = 13, 14, 15, 16
 PINKY_MCP, PINKY_PIP, PINKY_DIP, PINKY_TIP = 17, 18, 19, 20
 
-
 class HandState(Enum):
     UNKNOWN = auto()
-    FISTED = auto()
-    OPEN = auto()
-
+    FISTED  = auto()
+    OPEN    = auto()
 
 class RotationPosition(Enum):
-    NONE = 0
-    LEFT_FAR = 1    # 0-60°
-    LEFT_NEAR = 2   # 60-90°
-    RIGHT_NEAR = 3  # 90-120°
-    RIGHT_FAR = 4   # 120-180°
+    NONE       = 0
+    LEFT_FAR   = 1
+    LEFT_NEAR  = 2
+    RIGHT_NEAR = 3
+    RIGHT_FAR  = 4
 
-
-def _distance(p1, p2):
-    return np.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
-
-
-def _median(seq: List[float]):
-    if not seq:
-        return None
-    return float(np.median(np.asarray(seq, dtype=float)))
-
+def _dist(a, b): return float(np.linalg.norm(a - b))
+def _median(seq): return float(np.median(np.asarray(seq))) if seq else None
 
 class WristRotationDetector:
-    """
-    Simple detector with INDEPENDENT hand state and position
-    """
+    def __init__(self, udp_ip="192.168.0.10", udp_port=9000, min_confidence=0.3,
+                 min_palm_px=25.0, stale_timeout_ms=400):
+        # Config
+        self.min_confidence = float(min_confidence)
+        self.min_palm_px = float(min_palm_px)              # guard for tiny ghost hands
+        self.stale_timeout_ms = int(stale_timeout_ms)      # watchdog
 
-    def __init__(self):
         # Angle smoothing
         self.angle_buffer = deque(maxlen=5)
-        
-        # Hand state
+        self._neutral_angle = None
+        self._calib_samples = []
+        self._calibrated = False
+
+        # State
         self.state = HandState.UNKNOWN
         self._open_streak = 0
         self._fist_streak = 0
-        
-        # Position (ALWAYS updated!)
         self._current_angle: Optional[float] = None
         self._current_position: RotationPosition = RotationPosition.NONE
-        
-        # Calibration
-        self._neutral_angle: Optional[float] = None
-        self._calib_samples = []
-        self._calibrated = False
-        
-        # Debug
         self._finger_states = {}
-        
+        self._hand_detected = False
+
+        # Last-seen watchdog
+        self._last_seen_ms = 0
+
         # Output
         self.result_file = "result.txt"
 
+        # UDP
+        self.udp_ip = udp_ip
+        self.udp_port = udp_port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setblocking(False)
+        self._last_sent_state = None
+        self._last_sent_pos = None
+
+    # ---------- public ----------
+    def heartbeat(self):
+        """Call this every loop. If no valid hand for timeout, force NO_HAND."""
+        now = int(time.time() * 1000)
+        if self._hand_detected and (now - self._last_seen_ms) > self.stale_timeout_ms:
+            self.no_hand()
+
+    def no_hand(self):
+        self._hand_detected = False
+        self.state = HandState.UNKNOWN
+        self._current_position = RotationPosition.NONE
+        self._current_angle = None
+        self._write_result("NO_HAND", 0, 0.0)
+        self._send_udp(no_hand=True)
+        print("🚫 No hand detected -> area/menu/0")
+
     def update(self, hand) -> Tuple[RotationPosition, Optional[float], HandState]:
-        """
-        Main update - TWO INDEPENDENT THINGS:
-        1. Hand state (for display)
-        2. Position (ALWAYS based on angle)
-        """
-        # Extract landmarks
-        lms, confidence = self._extract_landmarks(hand)
-        if lms is None:
-            self._write_result("NO_HAND", 0, 0.0)
+        lms, conf = self._extract_landmarks(hand)
+        if (lms is None) or (conf < self.min_confidence):
+            self.no_hand()
             return RotationPosition.NONE, None, HandState.UNKNOWN
 
-        # ============ 1. HAND STATE (for display) ============
-        measured_state = self._detect_hand_state(lms)
-        self._update_hand_state_with_hysteresis(measured_state)
+        # Tiny/ghost hand guard (reject if palm too small)
+        palm_w = _dist(lms[INDEX_MCP], lms[PINKY_MCP])
+        if not np.isfinite(palm_w) or palm_w < self.min_palm_px:
+            self.no_hand()
+            return RotationPosition.NONE, None, HandState.UNKNOWN
 
-        # ============ 2. ANGLE & POSITION (INDEPENDENT!) ============
-        raw_angle = self._calculate_wrist_angle(lms)
+        # Mark seen
+        self._hand_detected = True
+        self._last_seen_ms = int(time.time() * 1000)
+
+        # 1) Hand state (for display)
+        measured = self._detect_hand_state(lms, palm_w)
+        self._update_state(measured)
+
+        # 2) Angle → position (always)
+        raw_angle = self._calc_angle(lms)
         if raw_angle is None:
-            return self._finalize()
+            self.no_hand()
+            return RotationPosition.NONE, None, HandState.UNKNOWN
 
-        # Calibration
         if not self._calibrated:
             self._calib_samples.append(raw_angle)
             if len(self._calib_samples) >= 10:
                 self._neutral_angle = _median(self._calib_samples)
                 self._calibrated = True
-                print(f"✓ Calibrated to {self._neutral_angle:.1f}°")
+                print(f"✓ Calibrated neutral angle: {self._neutral_angle:.1f}°")
 
-        # Apply calibration
         if self._neutral_angle is not None:
-            angle = raw_angle + (90.0 - self._neutral_angle)
-            angle = float(np.clip(angle, 0.0, 180.0))
+            angle = float(np.clip(raw_angle + (90.0 - self._neutral_angle), 0.0, 180.0))
         else:
             angle = raw_angle
 
-        # Smooth angle
         self.angle_buffer.append(angle)
-        smoothed_angle = _median(list(self.angle_buffer)) or angle
-        self._current_angle = smoothed_angle
+        smoothed = _median(self.angle_buffer) or angle
+        self._current_angle = smoothed
+        self._current_position = self._angle_to_position(smoothed)
 
-        # ALWAYS UPDATE POSITION (independent of hand state!)
-        self._current_position = self._angle_to_position(smoothed_angle)
+        # IO
+        self._write_result(self.state.name, self._current_position.value, smoothed)
+        self._send_udp()
+        print(f"🖐 State: {self.state.name} | Pos: {self._current_position.value} | Angle: {smoothed:.1f}°")
+        return self._current_position, smoothed, self.state
 
-        # Write to file
-        self._write_result(self.state.name, self._current_position.value, smoothed_angle)
+    # ---------- internals ----------
+    def _detect_hand_state(self, lms: np.ndarray, palm_w: float) -> HandState:
+        wrist = lms[WRIST]
 
-        return self._current_position, smoothed_angle, self.state
+        def extended(tip, mcp):
+            return _dist(wrist, lms[tip]) / max(_dist(wrist, lms[mcp]), 1e-6) > 1.35
+
+        idx = extended(INDEX_TIP, INDEX_MCP)
+        mid = extended(MIDDLE_TIP, MIDDLE_MCP)
+        rng = extended(RING_TIP, RING_MCP)
+        pky = extended(PINKY_TIP, PINKY_MCP)
+        thumb = extended(THUMB_TIP, THUMB_MCP)
+
+        self._finger_states = {
+            "thumb": thumb, "index": idx, "middle": mid, "ring": rng, "pinky": pky
+        }
+        extended_count = sum(self._finger_states.values())
+
+        tips = [lms[INDEX_TIP], lms[MIDDLE_TIP], lms[RING_TIP], lms[PINKY_TIP]]
+        total_spread = sum(_dist(tips[i], tips[i+1]) for i in range(3))
+        spread_ratio = total_spread / max(palm_w, 1.0)
+
+        return HandState.FISTED if (extended_count <= 1 or spread_ratio < 0.65) else HandState.OPEN
+
+    def _update_state(self, measured: HandState):
+        if measured == HandState.OPEN:
+            self._open_streak += 1; self._fist_streak = 0
+        else:
+            self._fist_streak += 1; self._open_streak = 0
+
+        if self.state in (HandState.UNKNOWN, HandState.FISTED) and self._open_streak >= 1:
+            self.state = HandState.OPEN
+        if self.state in (HandState.UNKNOWN, HandState.OPEN) and self._fist_streak >= 1:
+            self.state = HandState.FISTED
+
+    def _calc_angle(self, lms: np.ndarray):
+        wrist, mid = lms[WRIST], lms[MIDDLE_MCP]
+        v = mid - wrist
+        if np.linalg.norm(v) < 1e-3:
+            return None
+        ang = math.degrees(math.atan2(-v[1], v[0]))
+        ang = abs(ang) % 360
+        if ang > 180:
+            ang = 360 - ang
+        ang = 180 - ang
+        return float(np.clip(ang, 0, 180))
 
     def _angle_to_position(self, angle: float) -> RotationPosition:
-        """
-        Simple direct mapping - NO hysteresis, NO conditions
-        Just pure angle → position
-        """
-        if angle < 60.0:
-            return RotationPosition.LEFT_FAR      # Position 1
-        elif angle < 90.0:
-            return RotationPosition.LEFT_NEAR     # Position 2
-        elif angle < 120.0:
-            return RotationPosition.RIGHT_NEAR    # Position 3
-        else:
-            return RotationPosition.RIGHT_FAR     # Position 4
+        if angle < 60:   return RotationPosition.LEFT_FAR
+        if angle < 90:   return RotationPosition.LEFT_NEAR
+        if angle < 120:  return RotationPosition.RIGHT_NEAR
+        return RotationPosition.RIGHT_FAR
 
-    def _detect_hand_state(self, lms: np.ndarray) -> HandState:
-        """
-        BALANCED dual-method detection:
-        Method 1: Distance ratio (stricter)
-        Method 2: Finger spread (for slightly open hands)
-        Both must agree for OPEN
-        """
-        wrist = lms[WRIST]
-        
-        # Get palm size
-        palm_width = _distance(lms[INDEX_MCP], lms[PINKY_MCP])
-        if palm_width < 1e-6:
-            palm_width = 50.0
-        
-        # METHOD 1: Distance ratio (BALANCED threshold)
-        def is_finger_extended(tip_idx, mcp_idx):
-            tip_dist = _distance(wrist, lms[tip_idx])
-            mcp_dist = _distance(wrist, lms[mcp_idx])
-            if mcp_dist < 1e-6:
-                return False
-            ratio = tip_dist / mcp_dist
-            # BALANCED - 1.2 (20% farther)
-            return ratio > 1.2
-        
-        # Check all fingers
-        thumb_open = is_finger_extended(THUMB_TIP, THUMB_MCP)
-        index_open = is_finger_extended(INDEX_TIP, INDEX_MCP)
-        middle_open = is_finger_extended(MIDDLE_TIP, MIDDLE_MCP)
-        ring_open = is_finger_extended(RING_TIP, RING_MCP)
-        pinky_open = is_finger_extended(PINKY_TIP, PINKY_MCP)
-        
-        extended_count = sum([thumb_open, index_open, middle_open, ring_open, pinky_open])
-        
-        # METHOD 2: Finger spread
-        # When fisted: fingertips bunched together
-        # When open: fingertips spread apart
-        tips = [lms[INDEX_TIP], lms[MIDDLE_TIP], lms[RING_TIP], lms[PINKY_TIP]]
-        total_spread = sum(_distance(tips[i], tips[i+1]) for i in range(len(tips)-1))
-        spread_ratio = total_spread / max(palm_width, 1e-6)
-        
-        # METHOD 3: Check if all fingertips are close to palm center
-        # Fisted hand: all tips near palm
-        palm_center_x = (lms[INDEX_MCP][0] + lms[PINKY_MCP][0]) / 2
-        palm_center_y = (lms[INDEX_MCP][1] + lms[PINKY_MCP][1]) / 2
-        palm_center = np.array([palm_center_x, palm_center_y])
-        
-        tips_near_palm = 0
-        for tip_idx in [INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP]:
-            dist_to_palm = _distance(palm_center, lms[tip_idx])
-            if dist_to_palm < palm_width * 0.8:  # Tips very close to palm
-                tips_near_palm += 1
-        
-        self._finger_states = {
-            'thumb': thumb_open,
-            'index': index_open,
-            'middle': middle_open,
-            'ring': ring_open,
-            'pinky': pinky_open
-        }
-        
-        # DECISION LOGIC:
-        # FISTED if: ALL fingers close to palm (tight fist)
-        if tips_near_palm >= 3:
-            return HandState.FISTED
-        
-        # OPEN if: 2+ fingers extended OR good spread
-        good_spread = spread_ratio > 1.0
-        is_open = (extended_count >= 2) or (extended_count >= 1 and good_spread)
-        
-        return HandState.OPEN if is_open else HandState.FISTED
-
-    def _update_hand_state_with_hysteresis(self, measured: HandState):
-        """Minimal hysteresis for hand state"""
-        if measured == HandState.OPEN:
-            self._open_streak += 1
-            self._fist_streak = 0
-        else:
-            self._fist_streak += 1
-            self._open_streak = 0
-
-        # Only 1 frame needed to change (minimal hysteresis)
-        if self.state in (HandState.UNKNOWN, HandState.FISTED):
-            if self._open_streak >= 1:
-                self.state = HandState.OPEN
-
-        if self.state in (HandState.UNKNOWN, HandState.OPEN):
-            if self._fist_streak >= 1:
-                self.state = HandState.FISTED
-
-    def _calculate_wrist_angle(self, lms: np.ndarray) -> Optional[float]:
-        """Calculate wrist rotation angle"""
-        wrist = lms[WRIST]
-        middle_mcp = lms[MIDDLE_MCP]
-        vec = middle_mcp - wrist
-        if np.linalg.norm(vec) < 1e-3:
-            return None
-        angle = math.degrees(math.atan2(-vec[1], vec[0]))
-        angle = abs(angle) % 360.0
-        if angle > 180.0:
-            angle = 360.0 - angle
-        angle = 180.0 - angle
-        return float(np.clip(angle, 0.0, 180.0))
-
-    def _extract_landmarks(self, hand):
-        """Extract landmarks"""
-        lms = None
-        confidence = 1.0
-        if isinstance(hand, dict):
-            lms = hand.get('landmarks')
-            confidence = float(hand.get('lm_score', 1.0))
-        else:
-            if hasattr(hand, 'landmarks'):
-                lms = getattr(hand, 'landmarks')
-            if hasattr(hand, 'lm_score'):
-                confidence = float(getattr(hand, 'lm_score'))
-        if lms is None:
-            return None, 0.0
-        lms = np.asarray(lms, dtype=float)
-        if lms.shape == (21, 3):
-            lms = lms[:, :2]
-        if lms.shape != (21, 2):
-            return None, 0.0
-        return lms, confidence
-
-    def _write_result(self, state_name: str, position: int, angle: float):
-        """Write to result.txt"""
+    def _write_result(self, state_name, pos, ang):
         try:
-            with open(self.result_file, 'w', encoding='utf-8') as f:
+            with open(self.result_file, "w", encoding="utf-8") as f:
                 f.write(f"State: {state_name}\n")
-                f.write(f"Position: {position}\n")
-                f.write(f"Angle: {angle:.1f}°\n")
+                f.write(f"Position: {pos}\n")
+                f.write(f"Angle: {ang:.1f}°\n")
         except Exception:
             pass
 
-    def _finalize(self) -> Tuple[RotationPosition, Optional[float], HandState]:
-        return self._current_position, self._current_angle, self.state
+    def _send_udp(self, no_hand=False):
+        try:
+            if no_hand:
+                msg = "area/menu/0"
+                self.sock.sendto(msg.encode(), (self.udp_ip, self.udp_port))
+                self._last_sent_pos = msg
+                self._last_sent_state = None  # force resend on next valid hand
+                return
 
-    def reset(self):
-        """Reset"""
-        self.angle_buffer.clear()
-        self.state = HandState.UNKNOWN
-        self._open_streak = 0
-        self._fist_streak = 0
-        self._current_angle = None
-        self._current_position = RotationPosition.NONE
-        self._neutral_angle = None
-        self._calib_samples.clear()
-        self._calibrated = False
-        print("Reset!")
+            # State
+            state_msg = "gesture/five" if self.state == HandState.OPEN else \
+                        "gesture/zero" if self.state == HandState.FISTED else None
+            if state_msg and state_msg != self._last_sent_state:
+                self.sock.sendto(state_msg.encode(), (self.udp_ip, self.udp_port))
+                self._last_sent_state = state_msg
+
+            # Position
+            area_msg = f"area/menu/{int(self._current_position.value)}"
+            if area_msg != self._last_sent_pos:
+                self.sock.sendto(area_msg.encode(), (self.udp_ip, self.udp_port))
+                self._last_sent_pos = area_msg
+        except Exception as e:
+            print("UDP Error:", e)
+
+    def _extract_landmarks(self, hand):
+        lms, conf = None, 1.0
+        if hand is None:
+            return None, 0.0
+
+        if isinstance(hand, dict):
+            lms = hand.get("landmarks")
+            conf = float(hand.get("lm_score", 1.0))
+        elif hasattr(hand, "landmarks"):
+            lms = np.array(hand.landmarks)
+            conf = float(getattr(hand, "lm_score", 1.0))
+        else:
+            return None, 0.0
+
+        if lms is None: return None, 0.0
+        lms = np.asarray(lms, dtype=float)
+        if lms.shape == (21, 3): lms = lms[:, :2]
+        if lms.shape != (21, 2): return None, 0.0
+        if not np.isfinite(lms).all(): return None, 0.0
+        if np.allclose(lms, 0.0, atol=1e-9): return None, 0.0
+        return lms, conf
 
     def get_state_info(self):
-        """Get state info"""
         return {
             "state": self.state.name,
             "hand_state": self.state.name,
@@ -298,6 +261,7 @@ class WristRotationDetector:
             "position_name": self._position_name(self._current_position),
             "calibrated": self._calibrated,
             "finger_states": self._finger_states.copy(),
+            "hand_detected": self._hand_detected,
         }
 
     def _position_name(self, pos: RotationPosition) -> str:
@@ -309,3 +273,19 @@ class WristRotationDetector:
             RotationPosition.RIGHT_FAR: "Position 4 (RIGHT)",
         }
         return names.get(pos, "NONE")
+
+    def reset(self):
+        self.angle_buffer.clear()
+        self.state = HandState.UNKNOWN
+        self._open_streak = self._fist_streak = 0
+        self._current_angle = None
+        self._current_position = RotationPosition.NONE
+        self._neutral_angle = None
+        self._calib_samples.clear()
+        self._calibrated = False
+        self._finger_states.clear()
+        self._last_sent_state = None
+        self._last_sent_pos = None
+        self._hand_detected = False
+        self._last_seen_ms = 0
+        print("Reset complete!")
