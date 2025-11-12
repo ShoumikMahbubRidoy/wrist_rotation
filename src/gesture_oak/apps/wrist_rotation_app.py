@@ -1,221 +1,282 @@
 #!/usr/bin/env python3
 """
-PRECISION Wrist Rotation App
-- Mirrored frame (natural hand movement)
-- Correctly mirrored landmarks (after w,h known)
-- Detector handles debouncing, One-Euro, variance gate, Schmitt bins, K-frame confirm
-- Writes to result.txt
-- Shows selected position when fisted
+Simple Wrist Rotation App
+Matches the independent detector (v2.0)
 """
-import cv2
-import numpy as np
-import sys
-import os
+import os, sys, cv2, numpy as np
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from gesture_oak.detection.hand_detector import HandDetector
 from gesture_oak.detection.wrist_rotation_detector import (
-    WristRotationDetector, HandState, RotationPosition
+    WristRotationDetector, HandState, RotationPosition, WRIST
 )
 
-
-def draw_hand_landmarks(frame, hand):
+def draw_hand_landmarks(img, hand):
     """Draw hand skeleton"""
-    if not hasattr(hand, 'landmarks') or hand.landmarks is None:
+    if not hasattr(hand, 'landmarks') or hand.landmarks is None: 
         return
-
-    landmarks = hand.landmarks
-
-    # Connections
-    connections = [
-        (0, 1), (1, 2), (2, 3), (3, 4),             # Thumb
-        (0, 5), (5, 6), (6, 7), (7, 8),             # Index
-        (0, 9), (9, 10), (10, 11), (11, 12),        # Middle
-        (0, 13), (13, 14), (14, 15), (15, 16),      # Ring
-        (0, 17), (17, 18), (18, 19), (19, 20),      # Pinky
-        (5, 9), (9, 13), (13, 17)                   # Palm
+    lm = hand.landmarks
+    
+    # Lines
+    lines = [
+        (0,1),(1,2),(2,3),(3,4),
+        (0,5),(5,6),(6,7),(7,8),
+        (0,9),(9,10),(10,11),(11,12),
+        (0,13),(13,14),(14,15),(15,16),
+        (0,17),(17,18),(18,19),(19,20),
+        (5,9),(9,13),(13,17)
     ]
+    for a,b in lines:
+        cv2.line(img, tuple(lm[a].astype(int)), tuple(lm[b].astype(int)), (0,255,0), 2)
+    
+    # Points
+    for i,p in enumerate(lm):
+        r = 6 if i in [0,4,8,12,16,20] else 4
+        col = (0,0,255) if i in [0,4,8,12,16,20] else (255,255,255)
+        cv2.circle(img, tuple(p.astype(int)), r, col, -1)
 
-    for start, end in connections:
-        try:
-            pt1 = tuple(landmarks[start].astype(int))
-            pt2 = tuple(landmarks[end].astype(int))
-            cv2.line(frame, pt1, pt2, (0, 255, 0), 2)
-        except (IndexError, AttributeError, ValueError):
-            continue
 
-    # Landmark points
-    for i, point in enumerate(landmarks):
-        try:
-            pt = tuple(point.astype(int))
-            if i in [0, 4, 8, 12, 16, 20]:  # Wrist and fingertips
-                cv2.circle(frame, pt, 6, (0, 0, 255), -1)
-            else:
-                cv2.circle(frame, pt, 4, (255, 255, 255), -1)
-        except (AttributeError, ValueError):
-            continue
+def draw_position_zones(img, wrist_pt, angle, current_position):
+    """
+    Draw 4 position zones as a fan/cone from wrist
+    Zones follow the hand as it moves!
+    """
+    cx, cy = int(wrist_pt[0]), int(wrist_pt[1])
+    h, w = img.shape[:2]
+    
+    # Radius of the fan (based on distance from wrist to edge)
+    radius = 200
+    
+    # Zone boundaries (in degrees)
+    # We use the SAME angle convention as detection
+    # LEFT=0°, UP=90°, RIGHT=180°
+    boundaries = [0, 60, 90, 120, 180]
+    
+    # Zone colors
+    zone_colors = {
+        1: (0, 255, 255),    # Position 1 - Yellow
+        2: (0, 255, 0),      # Position 2 - Green  
+        3: (255, 128, 0),    # Position 3 - Orange
+        4: (0, 0, 255)       # Position 4 - Red
+    }
+    
+    def angle_to_point(angle_deg):
+        """Convert angle to point on screen"""
+        # Our convention: LEFT=0°, UP=90°, RIGHT=180°
+        # In screen coords: right=0°, down=90°, left=180°
+        # So we flip: screen_angle = 180° - our_angle
+        screen_angle = 180.0 - angle_deg
+        rad = np.radians(screen_angle)
+        x = cx + int(radius * np.cos(rad))
+        y = cy - int(radius * np.sin(rad))  # Negative because Y goes down
+        return (x, y)
+    
+    # Draw each zone
+    for zone_num in range(1, 5):
+        start_angle = boundaries[zone_num - 1]
+        end_angle = boundaries[zone_num]
+        
+        color = zone_colors[zone_num]
+        
+        # If this is the current position, make it bright/thick
+        if zone_num == current_position:
+            thickness = -1  # Fill
+            alpha = 0.3
+        else:
+            thickness = 2
+            alpha = 0.15
+        
+        # Create overlay for transparency
+        overlay = img.copy()
+        
+        # Draw filled sector for current position
+        if zone_num == current_position:
+            # Create polygon for filled sector
+            pts = [np.array([cx, cy])]
+            # Add arc points
+            for a in range(int(start_angle), int(end_angle) + 1, 5):
+                pt = angle_to_point(a)
+                pts.append(np.array(pt))
+            pts = np.array(pts, dtype=np.int32)
+            cv2.fillPoly(overlay, [pts], color)
+            cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+        
+        # Draw boundary lines
+        start_pt = angle_to_point(start_angle)
+        end_pt = angle_to_point(end_angle)
+        
+        cv2.line(img, (cx, cy), start_pt, (200, 200, 200), 2)
+        cv2.line(img, (cx, cy), end_pt, (200, 200, 200), 2)
+        
+        # Draw arc
+        # (OpenCV ellipse uses different angle convention, need to convert)
+        cv2.ellipse(img, (cx, cy), (radius, radius), 
+                   0,  # rotation
+                   -int(end_angle),  # start (negative because Y-flipped)
+                   -int(start_angle),  # end
+                   (200, 200, 200), 2)
+        
+        # Draw zone number
+        mid_angle = (start_angle + end_angle) / 2
+        label_pt = angle_to_point(mid_angle)
+        label_pt = (int(label_pt[0] * 0.6 + cx * 0.4), int(label_pt[1] * 0.6 + cy * 0.4))
+        cv2.putText(img, str(zone_num), label_pt,
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
+    
+    # Draw current angle indicator line
+    if angle is not None:
+        angle_pt = angle_to_point(angle)
+        cv2.line(img, (cx, cy), angle_pt, (255, 255, 255), 3)
+        cv2.circle(img, angle_pt, 8, (0, 255, 0), -1)
+    
+    # Draw wrist center
+    cv2.circle(img, (cx, cy), 8, (255, 255, 255), -1)
+    cv2.circle(img, (cx, cy), 10, (0, 0, 0), 2)
 
 
 def main():
-    """Main application"""
     print("="*70)
-    print("WRIST ROTATION DETECTION SYSTEM (Precision Mode)")
+    print("WRIST ROTATION DETECTION - SIMPLE & INDEPENDENT")
     print("="*70)
-    print("Camera: Palm-facing, 40-100cm distance")
+    print("Hand State: FISTED / OPEN (for display)")
+    print("Position: 1/2/3/4 (ALWAYS updates based on angle)")
     print()
-    print("Workflow:")
-    print("  1) Fist → SelectedPosition holds last open position")
-    print("  2) Open → Position = 1/2/3/4 (stable bins with hysteresis)")
-    print("  3) Variance-gated transitions + K-frame confirmation")
+    print("Position Mapping:")
+    print("  1: 0-60° (LEFT)")
+    print("  2: 60-90° (LEFT-CENTER)")
+    print("  3: 90-120° (RIGHT-CENTER)")
+    print("  4: 120-180° (RIGHT)")
     print()
-    print("Output: result.txt (updates in real-time)")
-    print("Controls: 'q' Quit | 'r' Reset | 's' Save frame")
+    print("Controls: q=Quit | r=Reset | s=Save")
     print("="*70)
-
-    # Optional precision preset from env (strict|normal|loose)
-    # Example: $env:WRIST_PRECISION="strict"
-    preset = os.environ.get("WRIST_PRECISION", "strict")
-    print(f"Precision preset: {preset}")
 
     # Initialize
-    print("Initializing...")
-    hand_detector = HandDetector(
-        fps=30,
-        resolution=(640, 480),
-        pd_score_thresh=0.10,
-        use_gesture=False
-    )
-
-    if not hand_detector.connect():
-        print("❌ Failed to connect to camera!")
+    hd = HandDetector(fps=30, resolution=(640,480), pd_score_thresh=0.10, use_gesture=False)
+    if not hd.connect():
+        print("❌ Failed to connect!"); 
         return
 
-    rotation_detector = WristRotationDetector(
-        buffer_size=12,
-        angle_smoothing=5,
-        ema_alpha=0.3,
-        open_frames=2,
-        fist_frames=3,
-        finger_extension_threshold=0.65,  # logic refined in detector
-    )
-
-    print("✅ Started!")
-    print()
-
-    saved_count = 0
-    stop_file = os.environ.get("TG25_STOP_FILE", "")
-
+    det = WristRotationDetector()
+    print("✓ Ready!")
+    
+    saved = 0
     try:
         while True:
-            if stop_file and os.path.exists(stop_file):
-                break
-
-            frame, hands, depth_frame = hand_detector.get_frame_and_hands()
-            if frame is None:
+            # Get frame
+            frame, hands, depth = hd.get_frame_and_hands()
+            if frame is None: 
                 continue
 
-            # MIRROR THE FRAME (natural hand movement)
+            # Mirror frame
             frame = cv2.flip(frame, 1)
+            h, w = frame.shape[:2]
 
-            display = frame.copy()
-            h, w = display.shape[:2]
+            # Mirror landmarks
+            for hnd in hands:
+                if hasattr(hnd, 'landmarks') and hnd.landmarks is not None:
+                    hnd.landmarks[:, 0] = w - hnd.landmarks[:, 0]
 
-            # Mirror the HAND LANDMARKS to match the mirrored frame (do AFTER we know w)
-            if len(hands) > 0:
-                for hand in hands:
-                    if hasattr(hand, 'landmarks') and hand.landmarks is not None:
-                        hand.landmarks[:, 0] = w - hand.landmarks[:, 0]
+            disp = frame.copy()
 
-            if len(hands) > 0:
+            if hands:
                 hand = hands[0]
-
+                
                 # Update detector
-                position, angle, hand_state = rotation_detector.update(hand)
-                state_info = rotation_detector.get_state_info()
+                pos, ang, state = det.update(hand)
+                info = det.get_state_info()
+                
+                # Get wrist position
+                wrist_pt = hand.landmarks[WRIST]
+                
+                # Draw position zones FIRST (behind hand)
+                draw_position_zones(disp, wrist_pt, ang, pos.value)
+                
+                # Draw hand ON TOP of zones
+                draw_hand_landmarks(disp, hand)
 
-                # Draw hand
-                draw_hand_landmarks(display, hand)
-
-                # Info panel
-                panel_h = 210
-                overlay = display.copy()
-                cv2.rectangle(overlay, (10, 10), (360, panel_h), (0, 0, 0), -1)
-                cv2.addWeighted(overlay, 0.70, display, 0.30, 0, display)
+                # Info panel (top-left)
+                overlay = disp.copy()
+                cv2.rectangle(overlay, (10, 10), (400, 180), (0, 0, 0), -1)
+                cv2.addWeighted(overlay, 0.7, disp, 0.3, 0, disp)
 
                 y = 40
-                if hand_state == HandState.FISTED:
-                    color = (0, 0, 255); text = "FISTED = 1"
-                elif hand_state == HandState.OPEN:
-                    color = (0, 255, 0); text = "HAND OPEN = 1"
+                
+                # Hand State
+                if state == HandState.FISTED:
+                    txt, col = "FISTED = 1", (0, 0, 255)
+                elif state == HandState.OPEN:
+                    txt, col = "HAND OPEN = 1", (0, 255, 0)
                 else:
-                    color = (128, 128, 128); text = "UNKNOWN"
-                cv2.putText(display, text, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2); y += 40
+                    txt, col = "PUT YOUR FISTED HAND", (128, 128, 128)
+                
+                cv2.putText(disp, txt, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2)
+                y += 45
 
-                if hand_state == HandState.FISTED:
-                    sel_pos = state_info['selected_position']
-                    cv2.putText(display, f"Selected Position: {sel_pos}", (20, y),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-                elif hand_state == HandState.OPEN:
-                    pos_val = position.value
-                    cv2.putText(display, f"Position: {pos_val}", (20, y),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                # Position (ALWAYS shown!)
+                pos_txt = f"Position: {pos.value}"
+                cv2.putText(disp, pos_txt, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
                 y += 40
 
-                if angle is not None:
-                    cv2.putText(display, f"Angle: {angle:.1f}°", (20, y),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 128, 0), 2)
+                # Angle
+                if ang is not None:
+                    cv2.putText(disp, f"Angle: {ang:.1f}°", (20, y), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 128, 0), 2)
                 y += 35
 
                 # Finger states (debug)
-                finger_states = state_info.get('finger_states', {})
-                fingers_text = "Fingers: " + " ".join(
-                    f"{name[0].upper()}:{'✓' if extended else '✗'}"
-                    for name, extended in finger_states.items()
-                )
-                cv2.putText(display, fingers_text, (20, y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                fingers = info.get('finger_states', {})
+                finger_txt = "Fingers: "
+                for name, open_state in fingers.items():
+                    finger_txt += f"{name[0].upper()}:{'✓' if open_state else '✗'} "
+                cv2.putText(disp, finger_txt, (20, y), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
-                # Big position
-                if hand_state == HandState.OPEN and position.value > 0:
-                    pos_color = {1: (0, 255, 255), 2: (0, 255, 0), 3: (255, 128, 0), 4: (0, 0, 255)}.get(position.value, (255, 255, 255))
-                    cv2.putText(display, str(position.value), (w - 120, h - 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 3.0, pos_color, 8)
-                elif hand_state == HandState.FISTED:
-                    sel_pos = state_info['selected_position']
-                    cv2.putText(display, f"SEL:{sel_pos}", (w - 150, h - 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 255), 4)
+                # Large position indicator (bottom-right)
+                pos_colors = {
+                    1: (0, 255, 255),    # Yellow
+                    2: (0, 255, 0),      # Green
+                    3: (255, 128, 0),    # Orange
+                    4: (0, 0, 255)       # Red
+                }
+                
+                if pos.value > 0:
+                    col = pos_colors.get(pos.value, (255, 255, 255))
+                    cv2.putText(disp, str(pos.value), (w - 120, h - 50),
+                               cv2.FONT_HERSHEY_SIMPLEX, 3.5, col, 8)
+                    
+                    # Position circle
+                    cv2.circle(disp, (w - 70, h - 60), 45, col, 4)
 
             else:
-                cv2.putText(display, "PUT YOUR FISTED HAND", (w // 2 - 200, h // 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+                # No hand
+                cv2.putText(disp, "PUT YOUR HAND IN VIEW", (w//2 - 220, h//2),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
 
             # FPS
-            fps = hand_detector.fps_counter.get_global()
-            cv2.putText(display, f"FPS: {fps:.1f}", (w - 150, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            fps = hd.fps_counter.get_global()
+            cv2.putText(disp, f"FPS: {fps:.1f}", (w - 160, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
             # Show
-            cv2.imshow("Wrist Rotation Detection (Precision)", display)
+            cv2.imshow("Wrist Rotation Detection", disp)
 
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
+            # Keys
+            k = cv2.waitKey(1) & 0xFF
+            if k == ord('q'): 
                 break
-            elif key == ord('r'):
-                rotation_detector.reset()
-                print("Reset!")
-            elif key == ord('s'):
-                filename = f"wrist_{saved_count:04d}.jpg"
-                cv2.imwrite(filename, display)
-                print(f"Saved: {filename}")
-                saved_count += 1
-
+            elif k == ord('r'): 
+                det.reset()
+            elif k == ord('s'):
+                fname = f"wrist_{saved:04d}.jpg"
+                cv2.imwrite(fname, disp)
+                print(f"Saved {fname}")
+                saved += 1
+                
     except KeyboardInterrupt:
         print("\nStopped")
-
     finally:
-        hand_detector.close()
+        hd.close()
         cv2.destroyAllWindows()
         print("Done!")
 
