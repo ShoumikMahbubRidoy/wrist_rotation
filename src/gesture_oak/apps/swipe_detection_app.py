@@ -64,7 +64,7 @@ def main():
         resolution=(640, 480),
         pd_score_thresh=0.1,   # Very low for IR detection
         use_gesture=False,     # ジェスチャー認識は無効化してパフォーマンス向上
-        use_rgb=False          # Force IR camera for dark environments
+        use_rgb=True          # Force IR camera for dark environments
     )
     
     # Initialize swipe detector with relaxed parameters (Easy detection mode)

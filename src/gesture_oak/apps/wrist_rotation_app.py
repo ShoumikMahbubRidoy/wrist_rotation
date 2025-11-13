@@ -249,7 +249,10 @@ def main():
                     cv2.circle(disp, (w - 70, h - 60), 45, col, 4)
 
             else:
-                # No hand
+                # NO HAND - notify detector
+                det.update(None)  # This will trigger UDP: area/menu/0
+                
+                # No hand message
                 cv2.putText(disp, "PUT YOUR HAND IN VIEW", (w//2 - 220, h//2),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
 

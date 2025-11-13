@@ -108,7 +108,7 @@ def main():
         resolution=(640, 480),
         pd_score_thresh=0.10,  # low for distance
         use_gesture=True,
-        use_rgb=False  # Force IR camera for dark environments
+        use_rgb=True  # Force IR camera for dark environments
     )
 
     # Initialize swipe detector
