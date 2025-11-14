@@ -11,10 +11,12 @@ from math import sin, cos
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PALM_DETECTION_MODEL = str(SCRIPT_DIR / "models/palm_detection_sh4.blob")
-LANDMARK_MODEL_FULL = str(SCRIPT_DIR / "models/hand_landmark_full_sh4.blob")
-LANDMARK_MODEL_LITE = str(SCRIPT_DIR / "models/hand_landmark_lite_sh4.blob")
-LANDMARK_MODEL_SPARSE = str(SCRIPT_DIR / "models/hand_landmark_sparse_sh4.blob")
+# Models are in project root, not in detection folder
+MODELS_DIR = SCRIPT_DIR.parent.parent.parent / "models"
+PALM_DETECTION_MODEL = str(MODELS_DIR / "palm_detection_sh4.blob")
+LANDMARK_MODEL_FULL = str(MODELS_DIR / "hand_landmark_full_sh4.blob")
+LANDMARK_MODEL_LITE = str(MODELS_DIR / "hand_landmark_lite_sh4.blob")
+LANDMARK_MODEL_SPARSE = str(MODELS_DIR / "hand_landmark_sparse_sh4.blob")
 
 def to_planar(arr: np.ndarray, shape: tuple) -> np.ndarray:
     return cv2.resize(arr, shape).transpose(2,0,1)#.flatten()

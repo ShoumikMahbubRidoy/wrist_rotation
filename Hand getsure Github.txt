@@ -1,0 +1,78 @@
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/.vscode/settings.json
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/API.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/CHANGELOG.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/INDEX.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/INSTALLATION.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/QUICKSTART.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/TECHNICAL.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/application-architecture.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/implementation-tasks.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/docs/troubleshooting.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/scripts/run_demo.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/.gitignore
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/apps/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/apps/hand_tracking_app.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/apps/motion_swipe_app.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/apps/swipe_detection_app.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/apps/wrist_rotation_app.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/core/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/core/oak_camera.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/HandTracker.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/HandTrackerRenderer.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/hand_detector.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/motion_detector.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/motion_swipe_detector.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/swipe_detector.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/test_hand_data.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/wrist_rotation_detector.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/logic/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/logic/gesture_classifier.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/utils/FPS.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/utils/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/utils/mediapipe_utils.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/utils/template_manager_script_solo.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/__init__.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/README.md
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/TG25_HandTracking.spec
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/TG25_Launcher.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/TG25_Launcher.spec
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/build.bat
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/main.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/probe_dai.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/probe_dai.spec
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/pyproject.toml
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/requirements.txt
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/result.txt
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/run_hand_tracking.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/run_hand_tracking.spec
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/sanity_open.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/sanity_rgb.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/uv.lock
+
+
+
+
+
+
+
+
+Well 
+
+1st fetch all the codes and read thoroughly. Understand and analysis thoroughly including https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/main.py
+
+2nd My team mate Nakakawa san created 
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/test_hand_data.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/HandTracker.py
+https://raw.githubusercontent.com/ShoumikMahbubRidoy/wrist_rotation/refs/heads/main/src/gesture_oak/detection/HandTrackerRenderer.py
+His this project is working finely with RGB. Understand his way. Then add that method on all the project features of mine.
+
+3rd New one more Feature to add. Like the image. Here detection will be the index finger(One)/ Fisted Hand. After such detection Identify on which Area index finger(One)/ Fisted Hand is detected. The whole camera frame will be splited into 3 area. Area1(33.33%)/ Area2(33.33%)/ Area3(33.33%).
+┌─────┬─────┬─────┐
+│          │          │          │
+│     1    │     2    │     3    │
+│          │          │          │
+└─────┴─────┴─────┘
+Same Nakakawa san's project is working finely with RGB. Understand his way. Then add that method on all the project features of mine.

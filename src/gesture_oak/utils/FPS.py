@@ -2,6 +2,12 @@
 import time
 from collections import deque
 
+# Add the missing 'now' function that HandTracker.py needs
+def now():
+    """Return current time in milliseconds"""
+    return time.perf_counter() * 1000
+
+
 class FPS:
     """
     Robust FPS tracker.
@@ -20,8 +26,8 @@ class FPS:
         self._frame_count = 0
 
     def start(self):
-        now = time.perf_counter()
-        self._start_ts = now
+        now_ts = time.perf_counter()
+        self._start_ts = now_ts
         self._first_update_ts = None
         self._last_update_ts = None
         self._stop_ts = None
@@ -37,16 +43,20 @@ class FPS:
         """
         Call once per successfully processed/displayed frame.
         """
-        now = time.perf_counter()
+        now_ts = time.perf_counter()
         for _ in range(n):
             if self._first_update_ts is None:
-                self._first_update_ts = now
+                self._first_update_ts = now_ts
             if self._last_update_ts is not None:
-                dt = now - self._last_update_ts
+                dt = now_ts - self._last_update_ts
                 if dt > 0:
                     self._times.append(dt)
-            self._last_update_ts = now
+            self._last_update_ts = now_ts
             self._frame_count += 1
+
+    def nb_frames(self) -> int:
+        """Alias for frames() - for compatibility"""
+        return self._frame_count
 
     def frames(self) -> int:
         return self._frame_count
@@ -76,6 +86,13 @@ class FPS:
         """
         elapsed = self.elapsed()
         return (self._frame_count / elapsed) if elapsed > 0 else 0.0
+
+    def draw(self, img, orig=(10, 30), size=1, color=(0, 255, 0), thickness=2):
+        """Draw FPS on image - for compatibility with HandTracker"""
+        import cv2
+        fps_text = f"FPS: {self.get_global():.1f}"
+        cv2.putText(img, fps_text, orig, cv2.FONT_HERSHEY_SIMPLEX, 
+                   size, color, thickness)
 
     # ---- Backward compatibility (keep old calls working) ----
     def get(self) -> float:

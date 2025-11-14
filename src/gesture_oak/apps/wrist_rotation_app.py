@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Simple Wrist Rotation App
-Matches the independent detector (v2.0)
+Wrist Rotation Detection App - RGB Version
+Uses RGB camera with Nakakawa-san's HandTracker
+All features from original IR version, now with RGB camera
 """
 import os, sys, cv2, numpy as np
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from gesture_oak.detection.hand_detector import HandDetector
+from gesture_oak.detection.rgb_hand_detector import RGBHandDetector
 from gesture_oak.detection.wrist_rotation_detector import (
     WristRotationDetector, HandState, RotationPosition, WRIST
 )
@@ -49,7 +50,6 @@ def draw_position_zones(img, wrist_pt, angle, current_position):
     radius = 200
     
     # Zone boundaries (in degrees)
-    # We use the SAME angle convention as detection
     # LEFT=0°, UP=90°, RIGHT=180°
     boundaries = [0, 60, 90, 120, 180]
     
@@ -63,13 +63,10 @@ def draw_position_zones(img, wrist_pt, angle, current_position):
     
     def angle_to_point(angle_deg):
         """Convert angle to point on screen"""
-        # Our convention: LEFT=0°, UP=90°, RIGHT=180°
-        # In screen coords: right=0°, down=90°, left=180°
-        # So we flip: screen_angle = 180° - our_angle
         screen_angle = 180.0 - angle_deg
         rad = np.radians(screen_angle)
         x = cx + int(radius * np.cos(rad))
-        y = cy - int(radius * np.sin(rad))  # Negative because Y goes down
+        y = cy - int(radius * np.sin(rad))
         return (x, y)
     
     # Draw each zone
@@ -110,10 +107,9 @@ def draw_position_zones(img, wrist_pt, angle, current_position):
         cv2.line(img, (cx, cy), end_pt, (200, 200, 200), 2)
         
         # Draw arc
-        # (OpenCV ellipse uses different angle convention, need to convert)
         cv2.ellipse(img, (cx, cy), (radius, radius), 
                    0,  # rotation
-                   -int(end_angle),  # start (negative because Y-flipped)
+                   -int(end_angle),  # start
                    -int(start_angle),  # end
                    (200, 200, 200), 2)
         
@@ -137,8 +133,10 @@ def draw_position_zones(img, wrist_pt, angle, current_position):
 
 def main():
     print("="*70)
-    print("WRIST ROTATION DETECTION - SIMPLE & INDEPENDENT")
+    print("WRIST ROTATION DETECTION - RGB MODE")
     print("="*70)
+    print("Using RGB camera with HandTracker")
+    print()
     print("Hand State: FISTED / OPEN (for display)")
     print("Position: 1/2/3/4 (ALWAYS updates based on angle)")
     print()
@@ -148,15 +146,24 @@ def main():
     print("  3: 90-120° (RIGHT-CENTER)")
     print("  4: 120-180° (RIGHT)")
     print()
+    print("UDP Messages:")
+    print("  gesture/five  : Open hand")
+    print("  gesture/zero  : Fisted hand")
+    print("  area/menu/1-4 : Position")
+    print("  area/menu/0   : No hand")
+    print()
     print("Controls: q=Quit | r=Reset | s=Save")
     print("="*70)
 
-    # Initialize
-    hd = HandDetector(fps=30, resolution=(640,480), pd_score_thresh=0.10, use_gesture=False)
+    # Initialize RGB hand detector
+    print("\nInitializing RGB hand detector...")
+    hd = RGBHandDetector(fps=30, resolution=(1280, 720), pd_score_thresh=0.5, use_gesture=False)
+    
     if not hd.connect():
         print("❌ Failed to connect!"); 
         return
 
+    # Initialize wrist rotation detector
     det = WristRotationDetector()
     print("✓ Ready!")
     
@@ -197,10 +204,15 @@ def main():
 
                 # Info panel (top-left)
                 overlay = disp.copy()
-                cv2.rectangle(overlay, (10, 10), (400, 180), (0, 0, 0), -1)
+                cv2.rectangle(overlay, (10, 10), (450, 180), (0, 0, 0), -1)
                 cv2.addWeighted(overlay, 0.7, disp, 0.3, 0, disp)
 
                 y = 40
+                
+                # Mode indicator
+                cv2.putText(disp, "RGB MODE", (20, y), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                y += 35
                 
                 # Hand State
                 if state == HandState.FISTED:
@@ -222,15 +234,6 @@ def main():
                 if ang is not None:
                     cv2.putText(disp, f"Angle: {ang:.1f}°", (20, y), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 128, 0), 2)
-                y += 35
-
-                # Finger states (debug)
-                fingers = info.get('finger_states', {})
-                finger_txt = "Fingers: "
-                for name, open_state in fingers.items():
-                    finger_txt += f"{name[0].upper()}:{'✓' if open_state else '✗'} "
-                cv2.putText(disp, finger_txt, (20, y), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
                 # Large position indicator (bottom-right)
                 pos_colors = {
@@ -250,11 +253,15 @@ def main():
 
             else:
                 # NO HAND - notify detector
-                det.update(None)  # This will trigger UDP: area/menu/0
+                det.update(None)
                 
                 # No hand message
                 cv2.putText(disp, "PUT YOUR HAND IN VIEW", (w//2 - 220, h//2),
                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+                
+                # Mode indicator
+                cv2.putText(disp, "RGB MODE", (20, 40), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
             # FPS
             fps = hd.fps_counter.get_global()
@@ -262,7 +269,7 @@ def main():
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
             # Show
-            cv2.imshow("Wrist Rotation Detection", disp)
+            cv2.imshow("Wrist Rotation Detection (RGB)", disp)
 
             # Keys
             k = cv2.waitKey(1) & 0xFF
@@ -271,7 +278,7 @@ def main():
             elif k == ord('r'): 
                 det.reset()
             elif k == ord('s'):
-                fname = f"wrist_{saved:04d}.jpg"
+                fname = f"wrist_rgb_{saved:04d}.jpg"
                 cv2.imwrite(fname, disp)
                 print(f"Saved {fname}")
                 saved += 1
