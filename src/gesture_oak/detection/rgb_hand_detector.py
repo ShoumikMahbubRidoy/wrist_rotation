@@ -133,13 +133,16 @@ class RGBHandDetector:
         
         # Resize frame to target resolution if needed
         if frame.shape[:2][::-1] != self.resolution:
+            orig_h, orig_w = frame.shape[:2]
             frame = cv2.resize(frame, self.resolution)
             
             # Scale landmarks to match resized frame
-            scale_x = self.resolution[0] / frame.shape[1]
-            scale_y = self.resolution[1] / frame.shape[0]
+            scale_x = self.resolution[0] / orig_w
+            scale_y = self.resolution[1] / orig_h
             for hand in hands:
                 if hasattr(hand, 'landmarks') and hand.landmarks is not None:
+                    # Convert to float, scale, then convert back
+                    hand.landmarks = hand.landmarks.astype(float)
                     hand.landmarks[:, 0] *= scale_x
                     hand.landmarks[:, 1] *= scale_y
         

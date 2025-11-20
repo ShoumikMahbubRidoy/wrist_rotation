@@ -1,0 +1,13 @@
+# Requirements for Smart Combined Detection EXE Build
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+numpy>=1.21.0
+opencv-python>=4.5.0
+depthai>=2.15.0
+
+# For EXE building
+pyinstaller>=5.0.0
+
+# Optional but recommended
+# opencv-contrib-python>=4.5.0  # If you need extra OpenCV features

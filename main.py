@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 TG_25_GestureOAK-D Main Menu
-Updated with RGB 3-Area Detection
+Updated with Smart Combined Detection
 """
 import sys
 from pathlib import Path
@@ -20,8 +20,9 @@ def print_menu():
     print("3. Run swipe detection app")
     print("4. Run motion-based swipe")
     print("5. Run wrist rotation detection")
-    print("6. Run 3-area detection (NEW - RGB)")
-    print("7. Exit")
+    print("6. Run 3-area detection (RGB)")
+    print("7. Run smart combined detection (NEW)")
+    print("8. Exit")
     print("="*60)
 
 
@@ -29,7 +30,7 @@ def main():
     """Main menu loop"""
     while True:
         print_menu()
-        choice = input("Enter your choice (1-7): ").strip()
+        choice = input("Enter your choice (1-8): ").strip()
         
         if choice == '1':
             # Test camera
@@ -62,7 +63,7 @@ def main():
             rotation_main()
         
         elif choice == '6':
-            # 3-area detection (NEW)
+            # 3-area detection (RGB mode)
             print("\nStarting 3-area detection (RGB mode)...")
             try:
                 from gesture_oak.apps.three_area_app import main as area_main
@@ -77,12 +78,29 @@ def main():
                 print("\nRefer to INTEGRATION_SUMMARY.md for setup instructions.")
         
         elif choice == '7':
+            # Smart Combined Detection (NEW!)
+            print("\nStarting smart combined detection...")
+            print("  🤚 OPEN hand → Wrist Rotation (4 zones)")
+            print("  ☝  ONE finger → 3-Area Pointing (3 zones)")
+            print("  ✊ FIST → Universal gesture")
+            try:
+                from gesture_oak.apps.smart_combined_app import main as smart_main
+                smart_main()
+            except ImportError as e:
+                print(f"\n❌ Error: Could not import smart_combined_app")
+                print(f"Details: {e}")
+                print("\nMake sure you have:")
+                print("  1. Copied smart_combined_detector.py to src/gesture_oak/detection/")
+                print("  2. Copied smart_combined_app.py to src/gesture_oak/apps/")
+                print("\nRefer to SMART_COMBINED_INTEGRATION.md for setup instructions.")
+        
+        elif choice == '8':
             # Exit
             print("\nExiting...")
             break
         
         else:
-            print("\nInvalid choice. Please enter 1-7.")
+            print("\nInvalid choice. Please enter 1-8.")
 
 
 if __name__ == "__main__":
